@@ -45,6 +45,10 @@ export function useVoiceCall(): UseVoiceCallResult {
       { id: userEntry.id, role: 'user', content: userText, createdAt: userEntry.createdAt },
     ];
 
+    // Mute the mic now, before we even call the LLM — otherwise the assistant's
+    // own voice (played back through speakers) gets picked up as new input,
+    // which is what was causing the hang/feedback loop.
+    controllerRef.current?.pause();
     setStatus('speaking');
     try {
       const replyText = await sendMessage({
@@ -69,17 +73,21 @@ export function useVoiceCall(): UseVoiceCallResult {
       ];
 
       speak(
-        replyText,
-        () => {
-          if (activeRef.current) setStatus('listening');
-        },
-        (msg) => setErrorMessage(msg),
+          replyText,
+          () => {
+            if (activeRef.current) {
+              controllerRef.current?.resume();
+              setStatus('listening');
+            }
+          },
+          (msg) => setErrorMessage(msg),
       );
     } catch (err) {
       if (!activeRef.current) return;
       const message =
-        err instanceof ChatApiError ? err.message : 'The assistant had trouble responding. Please try again.';
+          err instanceof ChatApiError ? err.message : 'The assistant had trouble responding. Please try again.';
       setErrorMessage(message);
+      controllerRef.current?.resume();
       setStatus('listening');
     }
   }, []);

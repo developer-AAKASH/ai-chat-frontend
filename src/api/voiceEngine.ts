@@ -25,6 +25,8 @@ export interface RecognitionHandlers {
 export class VoiceRecognitionController {
   private recognition: SpeechRecognition | null = null;
   private manuallyStopped = false;
+  /** True while intentionally muted (e.g. the assistant is speaking) — distinct from a full stop. */
+  private paused = false;
 
   constructor(private handlers: RecognitionHandlers) {}
 
@@ -36,12 +38,17 @@ export class VoiceRecognitionController {
     }
 
     this.manuallyStopped = false;
+    this.paused = false;
     const recognition = new SpeechRecognitionCtor();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
+      // Ignore anything picked up while we're intentionally muted (e.g. the
+      // assistant's own voice bleeding into the mic through the speakers).
+      if (this.paused) return;
+
       let interim = '';
       let final = '';
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -58,12 +65,18 @@ export class VoiceRecognitionController {
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      if (this.paused) return;
       // "no-speech" and "aborted" are routine (e.g. brief silence) — don't surface as hard errors.
       if (event.error === 'no-speech' || event.error === 'aborted') return;
       this.handlers.onError(`Microphone error: ${event.error}`);
     };
 
     recognition.onend = () => {
+      // If we stopped the mic on purpose (assistant is speaking), stay
+      // stopped until resume() is called — don't auto-restart and don't
+      // treat this as the call ending.
+      if (this.paused) return;
+
       // Browsers auto-stop recognition after a period of silence. If the user
       // hasn't manually ended the call, restart listening automatically.
       if (!this.manuallyStopped) {
@@ -85,8 +98,22 @@ export class VoiceRecognitionController {
     }
   }
 
+  /** Temporarily mute the mic (e.g. while the assistant is generating/speaking a reply). */
+  pause(): void {
+    if (this.paused || !this.recognition) return;
+    this.paused = true;
+    this.recognition.stop();
+  }
+
+  /** Resume listening after pause(). */
+  resume(): void {
+    if (!this.paused) return;
+    this.start();
+  }
+
   stop(): void {
     this.manuallyStopped = true;
+    this.paused = false;
     this.recognition?.stop();
     this.recognition = null;
   }
