@@ -129,7 +129,16 @@ export function useChatSessions(): UseChatSessionsResult {
         };
 
         const withUserMessage = [...activeSession.messages, userMessage];
-        setActiveSession({ ...activeSession, messages: withUserMessage });
+
+        // A placeholder assistant message, filled in as chunks stream in below —
+        // this is what makes the reply appear word-by-word instead of all at once.
+        const assistantId = uuid();
+        const assistantCreatedAt = Date.now();
+        const withPlaceholder: ChatMessage[] = [
+          ...withUserMessage,
+          { id: assistantId, role: 'assistant', content: '', createdAt: assistantCreatedAt, status: 'sending' },
+        ];
+        setActiveSession({ ...activeSession, messages: withPlaceholder });
         setIsSending(true);
 
         abortRef.current?.abort();
@@ -143,17 +152,21 @@ export function useChatSessions(): UseChatSessionsResult {
             text: userMessage.content,
             signal: controller.signal,
             mode: 'text',
+            onDelta: (_delta, fullTextSoFar) => {
+              setActiveSession((prev) => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  messages: prev.messages.map((m) => (m.id === assistantId ? { ...m, content: fullTextSoFar } : m)),
+                };
+              });
+            },
           });
 
-          const assistantMessage: ChatMessage = {
-            id: uuid(),
-            role: 'assistant',
-            content: replyText,
-            createdAt: Date.now(),
-            status: 'sent',
-          };
-
-          const finalMessages = [...withUserMessage, assistantMessage];
+          const finalMessages: ChatMessage[] = [
+            ...withUserMessage,
+            { id: assistantId, role: 'assistant', content: replyText, createdAt: assistantCreatedAt, status: 'sent' },
+          ];
           setActiveSession((prev) => (prev ? { ...prev, messages: finalMessages } : prev));
           await persistMessages(activeSession.id, finalMessages);
         } catch (err) {
@@ -162,7 +175,8 @@ export function useChatSessions(): UseChatSessionsResult {
               err instanceof ChatApiError ? err.message : 'Something went wrong sending your message.';
           setSendError(message);
           lastFailedTextRef.current = text;
-          // Keep the user's message in the thread but flag it as failed, and persist so it's not lost on refresh.
+          // Keep the user's message in the thread but flag it as failed, and drop the empty/partial
+          // placeholder bubble — `withUserMessage` never included it, so this naturally removes it.
           const messagesWithFailure = withUserMessage.map((m) =>
               m.id === userMessage.id ? { ...m, status: 'error' as const } : m,
           );

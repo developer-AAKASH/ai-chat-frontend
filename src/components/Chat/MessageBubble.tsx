@@ -11,6 +11,8 @@ function formatTime(ts: number): string {
 export function MessageBubble({ message }: MessageBubbleProps) {
     const isUser = message.role === 'user';
     const isError = message.status === 'error';
+    const isStreaming = message.status === 'sending';
+    const hasContent = message.content.length > 0;
 
     return (
         <div className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -24,7 +26,24 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                             : 'rounded-bl-sm bg-slate-100 text-slate-900 dark:bg-surface-muted dark:text-slate-100'
                     }`}
                 >
-                    <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                    {isStreaming && !hasContent ? (
+                        <span className="flex items-center gap-1 py-0.5" aria-live="polite" aria-label="Assistant is typing">
+              {[0, 1, 2].map((i) => (
+                  <span
+                      key={i}
+                      className="h-1.5 w-1.5 animate-blink rounded-full bg-slate-400"
+                      style={{ animationDelay: `${i * 0.2}s` }}
+                  />
+              ))}
+            </span>
+                    ) : (
+                        <p className="whitespace-pre-wrap break-words">
+                            {message.content}
+                            {isStreaming && (
+                                <span className="ml-0.5 inline-block h-3.5 w-[2px] animate-blink translate-y-0.5 bg-current align-middle" />
+                            )}
+                        </p>
+                    )}
                 </div>
                 <div className="flex items-center gap-1.5 px-1 text-xs text-slate-500 dark:text-slate-500">
                     {message.channel === 'voice' && (

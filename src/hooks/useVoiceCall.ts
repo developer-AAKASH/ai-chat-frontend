@@ -91,26 +91,34 @@ export function useVoiceCall(
     // actually playing) — without this, there's a stretch of silence right after the
     // badge already says "Speaking…", which reads as broken rather than natural.
     setStatus('thinking');
+
+    // Placeholder transcript entry, filled in word-by-word as the reply streams in —
+    // same streaming behavior as text chat, just rendered in the transcript panel.
+    const assistantTurnId = uuid();
+    const assistantCreatedAt = Date.now();
+    setTranscript((prev) => [
+      ...prev,
+      { id: assistantTurnId, role: 'assistant', text: '', isFinal: true, createdAt: assistantCreatedAt },
+    ]);
+
     try {
       const replyText = await sendMessage({
         sessionId: callSessionIdRef.current ?? 'voice-call',
         history: historyRef.current,
         text: userText,
         mode: 'voice',
+        onDelta: (_delta, fullTextSoFar) => {
+          // Ignore stray updates from a turn the user has already interrupted/moved past.
+          if (myTurn !== turnIdRef.current) return;
+          setTranscript((prev) => prev.map((e) => (e.id === assistantTurnId ? { ...e, text: fullTextSoFar } : e)));
+        },
       });
 
       if (!activeRef.current || myTurn !== turnIdRef.current) return;
 
-      const assistantTurnId = uuid();
-      const assistantCreatedAt = Date.now();
-      const assistantEntry: TranscriptEntry = {
-        id: assistantTurnId,
-        role: 'assistant',
-        text: replyText,
-        isFinal: true,
-        createdAt: assistantCreatedAt,
-      };
-      setTranscript((prev) => [...prev, assistantEntry]);
+      // Make sure the transcript reflects the final text exactly, even if the last
+      // delta and the resolved value differ for any reason.
+      setTranscript((prev) => prev.map((e) => (e.id === assistantTurnId ? { ...e, text: replyText } : e)));
 
       const assistantChatMessage: ChatMessage = {
         id: assistantTurnId,
@@ -138,6 +146,8 @@ export function useVoiceCall(
       );
     } catch (err) {
       if (!activeRef.current || myTurn !== turnIdRef.current) return;
+      // Drop the empty/partial placeholder — there's no complete reply to show.
+      setTranscript((prev) => prev.filter((e) => e.id !== assistantTurnId));
       const message =
           err instanceof ChatApiError ? err.message : 'The assistant had trouble responding. Please try again.';
       setErrorMessage(message);

@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { ChatSession } from '../../types';
 import { MessageBubble } from './MessageBubble';
-import { TypingIndicator } from './TypingIndicator';
 import { ChatInput } from './ChatInput';
 import { ErrorBanner } from '../common/ErrorBanner';
 
@@ -53,7 +52,6 @@ export function ChatWindow({ session, isSending, sendError, onSend, onRetry, onD
                         {messages.map((message) => (
                             <MessageBubble key={message.id} message={message} />
                         ))}
-                        {isSending && <TypingIndicator />}
                     </div>
                 )}
             </div>
