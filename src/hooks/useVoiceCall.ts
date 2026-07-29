@@ -11,6 +11,8 @@ interface UseVoiceCallResult {
   isSupported: boolean;
   startCall: () => void;
   endCall: () => void;
+  /** Cuts off the assistant mid-reply and starts listening again immediately — real conversations allow this. */
+  interrupt: () => void;
 }
 
 /**
@@ -41,6 +43,10 @@ export function useVoiceCall(
   const callSessionIdRef = useRef<string | null>(null);
   const onMessageRef = useRef(onMessage);
   const sessionIdRef = useRef(sessionId);
+  // Bumped on every new turn and on interrupt, so a reply that arrives after the
+  // user has already interrupted/moved on gets silently discarded instead of
+  // suddenly speaking over them.
+  const turnIdRef = useRef(0);
 
   useEffect(() => {
     onMessageRef.current = onMessage;
@@ -52,6 +58,7 @@ export function useVoiceCall(
   const supported = isVoiceSupported();
 
   const handleAssistantTurn = useCallback(async (userText: string) => {
+    const myTurn = ++turnIdRef.current;
     const userTurnId = uuid();
     const userCreatedAt = Date.now();
     const userEntry: TranscriptEntry = {
@@ -80,15 +87,19 @@ export function useVoiceCall(
     // own voice (played back through speakers) gets picked up as new input,
     // which is what was causing the hang/feedback loop.
     controllerRef.current?.pause();
-    setStatus('speaking');
+    // "Thinking" (waiting on the network) is visually distinct from "Speaking" (audio
+    // actually playing) — without this, there's a stretch of silence right after the
+    // badge already says "Speaking…", which reads as broken rather than natural.
+    setStatus('thinking');
     try {
       const replyText = await sendMessage({
         sessionId: callSessionIdRef.current ?? 'voice-call',
         history: historyRef.current,
         text: userText,
+        mode: 'voice',
       });
 
-      if (!activeRef.current) return;
+      if (!activeRef.current || myTurn !== turnIdRef.current) return;
 
       const assistantTurnId = uuid();
       const assistantCreatedAt = Date.now();
@@ -114,10 +125,11 @@ export function useVoiceCall(
         onMessageRef.current?.(callSessionIdRef.current, assistantChatMessage);
       }
 
+      setStatus('speaking');
       speak(
           replyText,
           () => {
-            if (activeRef.current) {
+            if (activeRef.current && myTurn === turnIdRef.current) {
               controllerRef.current?.resume();
               setStatus('listening');
             }
@@ -125,7 +137,7 @@ export function useVoiceCall(
           (msg) => setErrorMessage(msg),
       );
     } catch (err) {
-      if (!activeRef.current) return;
+      if (!activeRef.current || myTurn !== turnIdRef.current) return;
       const message =
           err instanceof ChatApiError ? err.message : 'The assistant had trouble responding. Please try again.';
       setErrorMessage(message);
@@ -147,6 +159,7 @@ export function useVoiceCall(
     setErrorMessage(null);
     setTranscript([]);
     historyRef.current = [];
+    turnIdRef.current = 0;
     activeRef.current = true;
     setStatus('connecting');
 
@@ -194,6 +207,16 @@ export function useVoiceCall(
     setStatus('disconnected');
   }, []);
 
+  /** Lets the user cut in while the assistant is thinking or talking — normal conversations allow this. */
+  const interrupt = useCallback(() => {
+    if (status !== 'thinking' && status !== 'speaking') return;
+    // Invalidate any in-flight reply so it doesn't suddenly start speaking after the user has moved on.
+    turnIdRef.current += 1;
+    cancelSpeech();
+    controllerRef.current?.resume();
+    setStatus('listening');
+  }, [status]);
+
   return {
     status,
     transcript,
@@ -201,5 +224,6 @@ export function useVoiceCall(
     isSupported: supported,
     startCall,
     endCall,
+    interrupt,
   };
 }

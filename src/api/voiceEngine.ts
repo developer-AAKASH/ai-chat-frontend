@@ -119,6 +119,51 @@ export class VoiceRecognitionController {
   }
 }
 
+// Browsers ship a mix of low-quality robotic voices and much better neural/"natural"
+// ones, but expose no quality metadata — only names. We rank by name patterns known
+// to be higher quality (Chrome's "Google" voices, Edge's "Natural" voices, macOS's
+// better system voices) and fall back to whatever's available.
+let cachedVoice: SpeechSynthesisVoice | null = null;
+let voiceCacheIsFresh = false;
+
+const PREFERRED_VOICE_PATTERNS = [
+  /Google US English/i,
+  /Microsoft.*Online.*Natural/i,
+  /Natural/i,
+  /Samantha/i,
+  /Aria/i,
+  /Jenny/i,
+];
+
+function pickPreferredVoice(): SpeechSynthesisVoice | null {
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length === 0) return null;
+
+  for (const pattern of PREFERRED_VOICE_PATTERNS) {
+    const match = voices.find((v) => pattern.test(v.name) && v.lang.toLowerCase().startsWith('en'));
+    if (match) return match;
+  }
+  return voices.find((v) => v.lang.toLowerCase().startsWith('en')) ?? voices[0];
+}
+
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+  // Voice lists load asynchronously in some browsers (notably Chrome on first page load).
+  // Invalidate the cache when the real list arrives so we don't get stuck with a null pick.
+  window.speechSynthesis.onvoiceschanged = () => {
+    voiceCacheIsFresh = false;
+  };
+}
+
+function getPreferredVoice(): SpeechSynthesisVoice | null {
+  if (voiceCacheIsFresh) return cachedVoice;
+  const picked = pickPreferredVoice();
+  if (picked) {
+    cachedVoice = picked;
+    voiceCacheIsFresh = true;
+  }
+  return picked;
+}
+
 export function speak(text: string, onDone: () => void, onError?: (msg: string) => void): void {
   if (!('speechSynthesis' in window)) {
     onError?.('Speech synthesis is not supported in this browser.');
@@ -127,11 +172,19 @@ export function speak(text: string, onDone: () => void, onError?: (msg: string) 
   }
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 1;
-  utterance.pitch = 1;
+  const voice = getPreferredVoice();
+  if (voice) utterance.voice = voice;
+  // Slightly faster than 1x and a hair higher pitch reads as noticeably more
+  // energetic/human than the flat robotic default — small values, big difference.
+  utterance.rate = 1.05;
+  utterance.pitch = 1.02;
   utterance.onend = () => onDone();
-  utterance.onerror = () => {
-    onError?.('Failed to play voice response.');
+  utterance.onerror = (event) => {
+    // Cancelling mid-speech (e.g. the user interrupting) fires an 'interrupted' error —
+    // that's expected behavior, not a real failure, so don't surface it as one.
+    if (event.error !== 'interrupted' && event.error !== 'canceled') {
+      onError?.('Failed to play voice response.');
+    }
     onDone();
   };
   window.speechSynthesis.speak(utterance);

@@ -142,6 +142,7 @@ export function useChatSessions(): UseChatSessionsResult {
             history: withUserMessage,
             text: userMessage.content,
             signal: controller.signal,
+            mode: 'text',
           });
 
           const assistantMessage: ChatMessage = {

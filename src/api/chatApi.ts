@@ -25,21 +25,23 @@ export interface SendMessageParams {
   history: ChatMessage[];
   text: string;
   signal?: AbortSignal;
+  /** 'voice' triggers a shorter, more conversational spoken-style reply on the backend. Defaults to 'text'. */
+  mode?: 'text' | 'voice';
 }
 
-export async function sendMessage({ history, signal }: SendMessageParams): Promise<string> {
+export async function sendMessage({ history, signal, mode = 'text' }: SendMessageParams): Promise<string> {
   // `history` already ends with the newest user message (see useChatSessions / useVoiceCall),
   // so we just forward it as-is.
   const messages = history
-    .filter((m) => m.status !== 'error')
-    .map((m) => ({ role: m.role, content: m.content }));
+      .filter((m) => m.status !== 'error')
+      .map((m) => ({ role: m.role, content: m.content }));
 
   let response: Response;
   try {
     response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({ messages, mode }),
       signal,
     });
   } catch (err) {
@@ -50,8 +52,8 @@ export async function sendMessage({ history, signal }: SendMessageParams): Promi
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: undefined }));
     throw new ChatApiError(
-      body.error || `Request failed with status ${response.status}`,
-      response.status === 429 ? 'RATE_LIMITED' : 'SERVER_ERROR',
+        body.error || `Request failed with status ${response.status}`,
+        response.status === 429 ? 'RATE_LIMITED' : 'SERVER_ERROR',
     );
   }
 

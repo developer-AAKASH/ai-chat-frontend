@@ -5,7 +5,7 @@ import { Button } from '../common/Button';
 import { ErrorBanner } from '../common/ErrorBanner';
 import type { ChatMessage } from '../../types';
 
-const CALL_ACTIVE_STATUSES = new Set(['connecting', 'connected', 'listening', 'speaking']);
+const CALL_ACTIVE_STATUSES = new Set(['connecting', 'connected', 'listening', 'thinking', 'speaking']);
 
 interface VoiceCallPanelProps {
     sessionId: string | null;
@@ -13,8 +13,12 @@ interface VoiceCallPanelProps {
 }
 
 export function VoiceCallPanel({ sessionId, onMessage }: VoiceCallPanelProps) {
-    const { status, transcript, errorMessage, isSupported, startCall, endCall } = useVoiceCall(sessionId, onMessage);
+    const { status, transcript, errorMessage, isSupported, startCall, endCall, interrupt } = useVoiceCall(
+        sessionId,
+        onMessage,
+    );
     const isCallActive = CALL_ACTIVE_STATUSES.has(status);
+    const isInterruptible = status === 'thinking' || status === 'speaking';
 
     return (
         <div className="flex h-full min-h-0 flex-col bg-white dark:bg-surface">
@@ -23,36 +27,58 @@ export function VoiceCallPanel({ sessionId, onMessage }: VoiceCallPanelProps) {
                     {(status === 'listening' || status === 'speaking') && (
                         <span className="absolute inset-0 animate-pulseRing rounded-full bg-brand-500/40" />
                     )}
-                    <div
+                    <button
+                        type="button"
+                        onClick={interrupt}
+                        disabled={!isInterruptible}
+                        aria-label={isInterruptible ? 'Interrupt the assistant' : undefined}
                         className={`flex h-20 w-20 items-center justify-center rounded-full text-white shadow-lg transition-colors ${
+                            isInterruptible ? 'cursor-pointer' : 'cursor-default'
+                        } ${
                             status === 'speaking'
                                 ? 'bg-violet-500'
-                                : status === 'listening'
-                                    ? 'bg-brand-500'
-                                    : 'bg-slate-100 text-slate-500 dark:bg-surface-muted dark:text-slate-400'
+                                : status === 'thinking'
+                                    ? 'bg-sky-500'
+                                    : status === 'listening'
+                                        ? 'bg-brand-500'
+                                        : 'bg-slate-100 text-slate-500 dark:bg-surface-muted dark:text-slate-400'
                         }`}
                     >
-                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
-                            <path
-                                d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                strokeLinecap="round"
-                            />
-                            <path
-                                d="M19 11a7 7 0 0 1-14 0M12 18v3"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                strokeLinecap="round"
-                            />
-                        </svg>
-                    </div>
+                        {status === 'thinking' ? (
+                            <span className="flex items-center gap-1">
+                {[0, 1, 2].map((i) => (
+                    <span
+                        key={i}
+                        className="h-2 w-2 animate-blink rounded-full bg-white"
+                        style={{ animationDelay: `${i * 0.2}s` }}
+                    />
+                ))}
+              </span>
+                        ) : (
+                            <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+                                <path
+                                    d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                />
+                                <path
+                                    d="M19 11a7 7 0 0 1-14 0M12 18v3"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                />
+                            </svg>
+                        )}
+                    </button>
                 </div>
 
                 <CallStatusBadge status={status} />
 
-                {sessionId && (
-                    <p className="text-xs text-slate-400 dark:text-slate-500">Saved to your chat history as you talk</p>
+                {isInterruptible ? (
+                    <p className="text-xs text-slate-400 dark:text-slate-500">Tap to jump in</p>
+                ) : (
+                    sessionId && <p className="text-xs text-slate-400 dark:text-slate-500">Saved to your chat history as you talk</p>
                 )}
 
                 {!isCallActive ? (

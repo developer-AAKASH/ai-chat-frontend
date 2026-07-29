@@ -40,6 +40,7 @@ export type CallStatus =
     | 'connecting'
     | 'connected'
     | 'listening'
+    | 'thinking'
     | 'speaking'
     | 'disconnected'
     | 'error';
