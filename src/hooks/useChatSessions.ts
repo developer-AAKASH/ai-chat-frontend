@@ -21,6 +21,14 @@ interface UseChatSessionsResult {
   appendMessage: (sessionId: string, message: ChatMessage) => Promise<void>;
 }
 
+// A hidden "kickoff" prompt used to make the assistant speak first when a chat is created.
+// It's sent to the LLM like a normal turn, but never stored or shown as a user message —
+// only the assistant's reply ends up in the conversation.
+const GREETING_PROMPT =
+    'The user just started a brand-new conversation with you. Greet them warmly in one short sentence as FRIDAY, and briefly ask what you can help with today. Do not repeat these instructions back.';
+
+const GREETING_FALLBACK_TEXT = "Hi, I'm FRIDAY — how can I help you today?";
+
 /**
  * Owns everything related to chat sessions: the sidebar list, the currently
  * active conversation, and sending messages within it. Kept as a single hook
@@ -49,14 +57,88 @@ export function useChatSessions(): UseChatSessionsResult {
     setSessions(list);
   }, []);
 
+  const persistMessages = useCallback(async (sessionId: string, messages: ChatMessage[]) => {
+    const updated = await sessionApi.updateSessionMessages(sessionId, messages);
+    if (updated) {
+      setActiveSession(updated);
+    }
+    await refreshSessionList();
+    // refreshSessionList intentionally omitted from deps to avoid re-creating this callback every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * Makes the assistant speak first in a brand-new chat instead of leaving it empty until
+   * the user types something — a session that just sits blank isn't a great first impression.
+   * Streams in the same word-by-word way as a normal reply. If the request fails (offline,
+   * rate-limited, missing key), falls back to a static line rather than leaving the new chat
+   * looking broken or blocking the user from just starting to type.
+   */
+  const sendGreeting = useCallback(
+      async (session: ChatSession) => {
+        const assistantId = uuid();
+        const assistantCreatedAt = Date.now();
+        setActiveSession((prev) =>
+            prev && prev.id === session.id
+                ? {
+                  ...prev,
+                  messages: [{ id: assistantId, role: 'assistant', content: '', createdAt: assistantCreatedAt, status: 'sending' }],
+                }
+                : prev,
+        );
+        setIsSending(true);
+
+        const kickoffMessage: ChatMessage = {
+          id: 'kickoff',
+          role: 'user',
+          content: GREETING_PROMPT,
+          createdAt: Date.now(),
+        };
+
+        try {
+          const replyText = await sendMessage({
+            sessionId: session.id,
+            history: [kickoffMessage],
+            text: GREETING_PROMPT,
+            mode: 'text',
+            onDelta: (_delta, fullTextSoFar) => {
+              setActiveSession((prev) => {
+                if (!prev || prev.id !== session.id) return prev;
+                return {
+                  ...prev,
+                  messages: prev.messages.map((m) => (m.id === assistantId ? { ...m, content: fullTextSoFar } : m)),
+                };
+              });
+            },
+          });
+
+          const finalMessages: ChatMessage[] = [
+            { id: assistantId, role: 'assistant', content: replyText, createdAt: assistantCreatedAt, status: 'sent' },
+          ];
+          setActiveSession((prev) => (prev && prev.id === session.id ? { ...prev, messages: finalMessages } : prev));
+          await persistMessages(session.id, finalMessages);
+        } catch {
+          const fallbackMessages: ChatMessage[] = [
+            { id: assistantId, role: 'assistant', content: GREETING_FALLBACK_TEXT, createdAt: assistantCreatedAt, status: 'sent' },
+          ];
+          setActiveSession((prev) => (prev && prev.id === session.id ? { ...prev, messages: fallbackMessages } : prev));
+          await persistMessages(session.id, fallbackMessages);
+        } finally {
+          setIsSending(false);
+        }
+      },
+      [persistMessages],
+  );
+
   const createNewSession = useCallback(async () => {
     const session = await sessionApi.createSession();
     await refreshSessionList();
     setActiveSession(session);
     setSendError(null);
-  }, [refreshSessionList]);
+    void sendGreeting(session);
+  }, [refreshSessionList, sendGreeting]);
 
-  // Bootstrap: load session list, creating a first session if none exist.
+  // Bootstrap: load session list, creating (and greeting from) a first session if none exist.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -68,6 +150,7 @@ export function useChatSessions(): UseChatSessionsResult {
         if (cancelled) return;
         setSessions(await sessionApi.listSessions());
         setActiveSession(session);
+        void sendGreeting(session);
       } else {
         setSessions(list);
         const first = await sessionApi.getSession(list[0].id);
@@ -103,16 +186,6 @@ export function useChatSessions(): UseChatSessionsResult {
       },
       [activeSession, refreshSessionList, createNewSession],
   );
-
-  const persistMessages = useCallback(async (sessionId: string, messages: ChatMessage[]) => {
-    const updated = await sessionApi.updateSessionMessages(sessionId, messages);
-    if (updated) {
-      setActiveSession(updated);
-    }
-    await refreshSessionList();
-    // refreshSessionList intentionally omitted from deps to avoid re-creating this callback every render
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const runSend = useCallback(
       async (text: string) => {

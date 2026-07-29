@@ -107,11 +107,11 @@ export default function App() {
 
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-500 font-display text-sm font-bold text-white">
-                A
+                F
               </div>
               <span className="font-display text-sm font-semibold tracking-wide text-slate-900 dark:text-slate-100 sm:text-base">
-                Aria
-              </span>
+              FRIDAY
+            </span>
             </div>
 
             <nav className="ml-auto flex items-center gap-1 rounded-xl bg-slate-100 p-1 dark:bg-surface-muted">

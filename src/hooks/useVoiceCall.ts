@@ -28,6 +28,10 @@ interface UseVoiceCallResult {
  * — voice and text end up as one continuous history, not two disconnected
  * experiences.
  */
+const GREETING_PROMPT =
+    'The user just started this call with you. Greet them warmly in one short sentence as FRIDAY and ask how you can help. This is spoken aloud, so keep it very brief.';
+const GREETING_FALLBACK_TEXT = "Hi, I'm FRIDAY. How can I help?";
+
 export function useVoiceCall(
     sessionId: string | null,
     onMessage?: (sessionId: string, message: ChatMessage) => void,
@@ -156,6 +160,69 @@ export function useVoiceCall(
     }
   }, []);
 
+  /**
+   * Makes FRIDAY speak first the moment a call connects, instead of sitting silently
+   * waiting for the user to say something — a live call that just goes quiet after
+   * "Connected" feels broken, not natural. The mic stays muted until this finishes.
+   */
+  const playGreeting = useCallback(() => {
+    const myTurn = ++turnIdRef.current;
+    const assistantTurnId = uuid();
+    const assistantCreatedAt = Date.now();
+    setTranscript((prev) => [
+      ...prev,
+      { id: assistantTurnId, role: 'assistant', text: '', isFinal: true, createdAt: assistantCreatedAt },
+    ]);
+
+    const finishTurn = (finalText: string) => {
+      if (!activeRef.current || myTurn !== turnIdRef.current) return;
+      setTranscript((prev) => prev.map((e) => (e.id === assistantTurnId ? { ...e, text: finalText } : e)));
+
+      const assistantChatMessage: ChatMessage = {
+        id: assistantTurnId,
+        role: 'assistant',
+        content: finalText,
+        createdAt: assistantCreatedAt,
+        status: 'sent',
+        channel: 'voice',
+      };
+      historyRef.current = [...historyRef.current, assistantChatMessage];
+      if (callSessionIdRef.current) {
+        onMessageRef.current?.(callSessionIdRef.current, assistantChatMessage);
+      }
+
+      setStatus('speaking');
+      speak(
+          finalText,
+          () => {
+            if (activeRef.current && myTurn === turnIdRef.current) {
+              controllerRef.current?.resume();
+              setStatus('listening');
+            }
+          },
+          (msg) => setErrorMessage(msg),
+      );
+    };
+
+    const kickoffMessage: ChatMessage = { id: 'kickoff', role: 'user', content: GREETING_PROMPT, createdAt: Date.now() };
+
+    sendMessage({
+      sessionId: callSessionIdRef.current ?? 'voice-call',
+      history: [kickoffMessage],
+      text: GREETING_PROMPT,
+      mode: 'voice',
+      onDelta: (_delta, fullTextSoFar) => {
+        if (myTurn !== turnIdRef.current) return;
+        setTranscript((prev) => prev.map((e) => (e.id === assistantTurnId ? { ...e, text: fullTextSoFar } : e)));
+      },
+    })
+        .then(finishTurn)
+        .catch(() => {
+          // Never let a failed greeting block the call — fall back to a short local line.
+          finishTurn(GREETING_FALLBACK_TEXT);
+        });
+  }, []);
+
   const startCall = useCallback(() => {
     if (!supported) {
       setErrorMessage('Voice calls need microphone and speech support, which this browser does not provide.');
@@ -205,9 +272,14 @@ export function useVoiceCall(
 
       controllerRef.current = controller;
       controller.start();
-      setStatus('listening');
+      // Get mic permission and get recognition running now, but keep it muted until
+      // FRIDAY's greeting finishes speaking — otherwise the greeting audio gets
+      // picked back up as input, the same feedback issue as any other reply.
+      controller.pause();
+      setStatus('thinking');
+      playGreeting();
     }, 700);
-  }, [supported, handleAssistantTurn]);
+  }, [supported, handleAssistantTurn, playGreeting]);
 
   const endCall = useCallback(() => {
     activeRef.current = false;
