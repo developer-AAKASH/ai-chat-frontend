@@ -27,7 +27,7 @@ export function TranscriptPanel({ entries }: TranscriptPanelProps) {
                     <p
                         className={`max-w-[85%] rounded-xl px-3.5 py-2 text-sm leading-relaxed sm:max-w-[70%] ${
                             entry.role === 'user'
-                                ? `bg-brand-500/90 text-white ${!entry.isFinal ? 'opacity-60 italic' : ''}`
+                                ? `bg-brand-700/90 text-white ${!entry.isFinal ? 'opacity-60 italic' : ''}`
                                 : 'bg-slate-100 text-slate-900 dark:bg-surface-muted dark:text-slate-100'
                         }`}
                     >

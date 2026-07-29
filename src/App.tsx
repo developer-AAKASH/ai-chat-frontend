@@ -14,7 +14,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
           onClick={onClick}
           className={`rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors ${
               active
-                  ? 'bg-brand-500 text-white'
+                  ? 'bg-brand-700 text-white'
                   : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
           }`}
       >

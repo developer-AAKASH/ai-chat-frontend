@@ -40,7 +40,7 @@ export function VoiceCallPanel({ sessionId, onMessage }: VoiceCallPanelProps) {
                                 : status === 'thinking'
                                     ? 'bg-sky-500'
                                     : status === 'listening'
-                                        ? 'bg-brand-500'
+                                        ? 'bg-brand-700'
                                         : 'bg-slate-100 text-slate-500 dark:bg-surface-muted dark:text-slate-400'
                         }`}
                     >

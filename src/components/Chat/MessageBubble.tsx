@@ -22,7 +22,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                         isUser
                             ? isError
                                 ? 'rounded-br-sm bg-red-50 text-red-700 ring-1 ring-red-300 dark:bg-red-500/15 dark:text-red-100 dark:ring-red-500/40'
-                                : 'rounded-br-sm bg-brand-500 text-white'
+                                : 'rounded-br-sm bg-brand-700 text-white'
                             : 'rounded-bl-sm bg-slate-100 text-slate-900 dark:bg-surface-muted dark:text-slate-100'
                     }`}
                 >
