@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../../types';
+import { TYPING_DOT_DELAY_STEP_S } from '../../constants/ui';
 
 interface MessageBubbleProps {
     message: ChatMessage;
@@ -32,7 +33,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                   <span
                       key={i}
                       className="h-1.5 w-1.5 animate-blink rounded-full bg-slate-400"
-                      style={{ animationDelay: `${i * 0.2}s` }}
+                      style={{ animationDelay: `${i * TYPING_DOT_DELAY_STEP_S}s` }}
                   />
               ))}
             </span>

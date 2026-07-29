@@ -5,6 +5,7 @@ import { Sidebar } from './components/Sessions/Sidebar';
 import { ChatWindow } from './components/Chat/ChatWindow';
 import { VoiceCallPanel } from './components/Voice/VoiceCallPanel';
 import { ThemeToggle } from './components/common/ThemeToggle';
+import { ASSISTANT_NAME } from './constants/assistant';
 
 type Tab = 'chat' | 'voice';
 
@@ -107,10 +108,10 @@ export default function App() {
 
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-500 font-display text-sm font-bold text-white">
-                F
+                {ASSISTANT_NAME.charAt(0)}
               </div>
               <span className="font-display text-sm font-semibold tracking-wide text-slate-900 dark:text-slate-100 sm:text-base">
-              FRIDAY
+              {ASSISTANT_NAME}
             </span>
             </div>
 

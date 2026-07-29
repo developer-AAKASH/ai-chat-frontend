@@ -3,6 +3,12 @@ import { v4 as uuid } from 'uuid';
 import { cancelSpeech, isVoiceSupported, speak, VoiceRecognitionController } from '../api/voiceEngine';
 import { ChatApiError, sendMessage } from '../api/chatApi';
 import type { CallStatus, ChatMessage, TranscriptEntry } from '../types';
+import {
+  CALL_CONNECT_DELAY_MS,
+  FALLBACK_VOICE_SESSION_ID,
+  VOICE_GREETING_FALLBACK,
+  VOICE_GREETING_PROMPT,
+} from '../constants/voice';
 
 interface UseVoiceCallResult {
   status: CallStatus;
@@ -28,10 +34,6 @@ interface UseVoiceCallResult {
  * — voice and text end up as one continuous history, not two disconnected
  * experiences.
  */
-const GREETING_PROMPT =
-    'The user just started this call with you. Greet them warmly in one short sentence as FRIDAY and ask how you can help. This is spoken aloud, so keep it very brief.';
-const GREETING_FALLBACK_TEXT = "Hi, I'm FRIDAY. How can I help?";
-
 export function useVoiceCall(
     sessionId: string | null,
     onMessage?: (sessionId: string, message: ChatMessage) => void,
@@ -107,7 +109,7 @@ export function useVoiceCall(
 
     try {
       const replyText = await sendMessage({
-        sessionId: callSessionIdRef.current ?? 'voice-call',
+        sessionId: callSessionIdRef.current ?? FALLBACK_VOICE_SESSION_ID,
         history: historyRef.current,
         text: userText,
         mode: 'voice',
@@ -204,12 +206,12 @@ export function useVoiceCall(
       );
     };
 
-    const kickoffMessage: ChatMessage = { id: 'kickoff', role: 'user', content: GREETING_PROMPT, createdAt: Date.now() };
+    const kickoffMessage: ChatMessage = { id: 'kickoff', role: 'user', content: VOICE_GREETING_PROMPT, createdAt: Date.now() };
 
     sendMessage({
-      sessionId: callSessionIdRef.current ?? 'voice-call',
+      sessionId: callSessionIdRef.current ?? FALLBACK_VOICE_SESSION_ID,
       history: [kickoffMessage],
-      text: GREETING_PROMPT,
+      text: VOICE_GREETING_PROMPT,
       mode: 'voice',
       onDelta: (_delta, fullTextSoFar) => {
         if (myTurn !== turnIdRef.current) return;
@@ -219,7 +221,7 @@ export function useVoiceCall(
         .then(finishTurn)
         .catch(() => {
           // Never let a failed greeting block the call — fall back to a short local line.
-          finishTurn(GREETING_FALLBACK_TEXT);
+          finishTurn(VOICE_GREETING_FALLBACK);
         });
   }, []);
 
@@ -278,7 +280,7 @@ export function useVoiceCall(
       controller.pause();
       setStatus('thinking');
       playGreeting();
-    }, 700);
+    }, CALL_CONNECT_DELAY_MS);
   }, [supported, handleAssistantTurn, playGreeting]);
 
   const endCall = useCallback(() => {

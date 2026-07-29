@@ -4,6 +4,7 @@ import { TranscriptPanel } from './TranscriptPanel';
 import { Button } from '../common/Button';
 import { ErrorBanner } from '../common/ErrorBanner';
 import type { ChatMessage } from '../../types';
+import { TYPING_DOT_DELAY_STEP_S } from '../../constants/ui';
 
 const CALL_ACTIVE_STATUSES = new Set(['connecting', 'connected', 'listening', 'thinking', 'speaking']);
 
@@ -50,7 +51,7 @@ export function VoiceCallPanel({ sessionId, onMessage }: VoiceCallPanelProps) {
                     <span
                         key={i}
                         className="h-2 w-2 animate-blink rounded-full bg-white"
-                        style={{ animationDelay: `${i * 0.2}s` }}
+                        style={{ animationDelay: `${i * TYPING_DOT_DELAY_STEP_S}s` }}
                     />
                 ))}
               </span>

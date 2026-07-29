@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import type { ChatMessage, ChatSession, ChatSessionSummary } from '../types';
+import { STORAGE_KEYS } from '../constants/storage';
 
 /**
  * Mock session persistence layer.
@@ -11,11 +12,9 @@ import type { ChatMessage, ChatSession, ChatSessionSummary } from '../types';
  * and every hook/component that consumes this module keeps working as-is.
  */
 
-const STORAGE_KEY = 'aria-sessions';
-
 function loadStore(): Map<string, ChatSession> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEYS.SESSIONS);
     if (!raw) return new Map();
     const parsed = JSON.parse(raw) as ChatSession[];
     return new Map(parsed.map((session) => [session.id, session]));
@@ -28,7 +27,7 @@ function loadStore(): Map<string, ChatSession> {
 
 function saveStore(store: Map<string, ChatSession>): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(store.values())));
+    localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(Array.from(store.values())));
   } catch {
     // Ignore write failures (e.g. storage full or disabled) — the session still works in-memory
     // for the rest of this tab session, it just won't survive a refresh.

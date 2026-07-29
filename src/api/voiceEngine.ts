@@ -10,6 +10,8 @@
  * Web Speech API, since there's no separate voice-native LLM endpoint here.
  */
 
+import { PREFERRED_VOICE_PATTERNS, RECOGNITION_LANG, SPEECH_PITCH, SPEECH_RATE } from '../constants/voice';
+
 export function isVoiceSupported(): boolean {
   const SpeechRecognitionCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
   return Boolean(SpeechRecognitionCtor) && 'speechSynthesis' in window;
@@ -42,7 +44,7 @@ export class VoiceRecognitionController {
     const recognition = new SpeechRecognitionCtor();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = 'en-US';
+    recognition.lang = RECOGNITION_LANG;
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       // Ignore anything picked up while we're intentionally muted (e.g. the
@@ -119,21 +121,8 @@ export class VoiceRecognitionController {
   }
 }
 
-// Browsers ship a mix of low-quality robotic voices and much better neural/"natural"
-// ones, but expose no quality metadata — only names. We rank by name patterns known
-// to be higher quality (Chrome's "Google" voices, Edge's "Natural" voices, macOS's
-// better system voices) and fall back to whatever's available.
 let cachedVoice: SpeechSynthesisVoice | null = null;
 let voiceCacheIsFresh = false;
-
-const PREFERRED_VOICE_PATTERNS = [
-  /Google US English/i,
-  /Microsoft.*Online.*Natural/i,
-  /Natural/i,
-  /Samantha/i,
-  /Aria/i,
-  /Jenny/i,
-];
 
 function pickPreferredVoice(): SpeechSynthesisVoice | null {
   const voices = window.speechSynthesis.getVoices();
@@ -174,10 +163,8 @@ export function speak(text: string, onDone: () => void, onError?: (msg: string) 
   const utterance = new SpeechSynthesisUtterance(text);
   const voice = getPreferredVoice();
   if (voice) utterance.voice = voice;
-  // Slightly faster than 1x and a hair higher pitch reads as noticeably more
-  // energetic/human than the flat robotic default — small values, big difference.
-  utterance.rate = 1.05;
-  utterance.pitch = 1.02;
+  utterance.rate = SPEECH_RATE;
+  utterance.pitch = SPEECH_PITCH;
   utterance.onend = () => onDone();
   utterance.onerror = (event) => {
     // Cancelling mid-speech (e.g. the user interrupting) fires an 'interrupted' error —

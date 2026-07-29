@@ -1,3 +1,5 @@
+import { TYPING_DOT_DELAY_STEP_S } from '../../constants/ui';
+
 export function TypingIndicator() {
     return (
         <div className="flex justify-start" aria-live="polite" aria-label="Assistant is typing">
@@ -6,7 +8,7 @@ export function TypingIndicator() {
                     <span
                         key={i}
                         className="h-1.5 w-1.5 animate-blink rounded-full bg-slate-400 dark:bg-slate-400"
-                        style={{ animationDelay: `${i * 0.2}s` }}
+                        style={{ animationDelay: `${i * TYPING_DOT_DELAY_STEP_S}s` }}
                     />
                 ))}
             </div>

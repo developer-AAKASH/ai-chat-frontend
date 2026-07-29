@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
 import { Button } from '../common/Button';
 import { Spinner } from '../common/Spinner';
+import { CHAT_INPUT_MAX_HEIGHT_PX } from '../../constants/ui';
 
 interface ChatInputProps {
     onSend: (text: string) => void;
@@ -30,7 +31,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
 
     const autoGrow = (el: HTMLTextAreaElement) => {
         el.style.height = 'auto';
-        el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+        el.style.height = `${Math.min(el.scrollHeight, CHAT_INPUT_MAX_HEIGHT_PX)}px`;
     };
 
     return (

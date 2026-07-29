@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../types';
+import { WORD_REVEAL_DELAY_MS } from '../constants/chat';
 
 /**
  * Real chat backend client.
@@ -33,8 +34,6 @@ export interface SendMessageParams {
   /** Called with each new chunk of text as it's revealed, plus the full text accumulated so far. */
   onDelta?: (delta: string, fullTextSoFar: string) => void;
 }
-
-const WORD_REVEAL_DELAY_MS = 35;
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
