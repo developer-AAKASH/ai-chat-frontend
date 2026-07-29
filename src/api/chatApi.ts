@@ -30,12 +30,53 @@ export interface SendMessageParams {
   signal?: AbortSignal;
   /** 'voice' triggers a shorter, more conversational spoken-style reply on the backend. Defaults to 'text'. */
   mode?: 'text' | 'voice';
-  /**
-   * Called once the full reply has arrived (kept for compatibility with callers that were
-   * built around word-by-word streaming — there's just a single call here now, with the
-   * complete text both times, instead of one call per chunk).
-   */
+  /** Called with each new chunk of text as it's revealed, plus the full text accumulated so far. */
   onDelta?: (delta: string, fullTextSoFar: string) => void;
+}
+
+const WORD_REVEAL_DELAY_MS = 35;
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+        'abort',
+        () => {
+          clearTimeout(timer);
+          reject(new DOMException('Aborted', 'AbortError'));
+        },
+        { once: true },
+    );
+  });
+}
+
+/**
+ * Fakes the old word-by-word streaming effect on the frontend, now that the backend just
+ * returns the full reply in one shot: reveals `fullText` to `onDelta` in word-sized chunks
+ * with a short delay between them, instead of dumping it into the chat bubble all at once.
+ * Purely cosmetic — doesn't touch the network layer at all.
+ */
+async function revealWordByWord(
+    fullText: string,
+    onDelta?: (delta: string, fullTextSoFar: string) => void,
+    signal?: AbortSignal,
+): Promise<void> {
+  if (!onDelta) return;
+
+  // Splits into "word + trailing whitespace" tokens so re-joining them reconstructs the
+  // original text exactly (including newlines, double spaces, etc.).
+  const tokens = fullText.match(/\S+\s*/g) ?? [fullText];
+
+  let accumulated = '';
+  for (const token of tokens) {
+    accumulated += token;
+    onDelta(token, accumulated);
+    await delay(WORD_REVEAL_DELAY_MS, signal);
+  }
 }
 
 export async function sendMessage({ history, signal, mode = 'text', onDelta }: SendMessageParams): Promise<string> {
@@ -73,9 +114,9 @@ export async function sendMessage({ history, signal, mode = 'text', onDelta }: S
     throw new ChatApiError('Received an empty response from the server.', 'BAD_RESPONSE');
   }
 
-  // Callers were built around progressive updates — fire onDelta once with the full text so
-  // they still render correctly, they just get it all at once instead of word-by-word.
-  onDelta?.(reply, reply);
+  // The reply already arrived in full — this just plays it back to the caller word-by-word
+  // for the typewriter effect. Aborting (e.g. the user sent a new message) stops it early.
+  await revealWordByWord(reply, onDelta, signal);
 
   return reply;
 }
