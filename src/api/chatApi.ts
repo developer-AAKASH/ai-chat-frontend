@@ -1,5 +1,6 @@
 import type { ChatMessage } from '../types';
 import { WORD_REVEAL_DELAY_MS } from '../constants/chat';
+import {API_URL} from "../constants/common.ts";
 
 /**
  * Real chat backend client.
@@ -87,7 +88,7 @@ export async function sendMessage({ history, signal, mode = 'text', onDelta }: S
 
   let response: Response;
   try {
-    response = await fetch('/api/chat', {
+    response = await fetch(`${API_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages, mode }),
