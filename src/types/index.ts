@@ -14,6 +14,8 @@ export interface ChatMessage {
   content: string;
   createdAt: number;
   status?: MessageStatus;
+  /** Where this message originated — lets the UI show a small indicator on voice-call messages. */
+  channel?: 'text' | 'voice';
 }
 
 export interface ChatSession {
@@ -34,13 +36,13 @@ export interface ChatSessionSummary {
 }
 
 export type CallStatus =
-  | 'idle'
-  | 'connecting'
-  | 'connected'
-  | 'listening'
-  | 'speaking'
-  | 'disconnected'
-  | 'error';
+    | 'idle'
+    | 'connecting'
+    | 'connected'
+    | 'listening'
+    | 'speaking'
+    | 'disconnected'
+    | 'error';
 
 export interface TranscriptEntry {
   id: string;

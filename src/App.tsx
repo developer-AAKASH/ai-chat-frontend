@@ -40,6 +40,7 @@ export default function App() {
     sendUserMessage,
     retryLastMessage,
     dismissError,
+    appendMessage,
   } = useChatSessions();
 
   return (
@@ -109,8 +110,8 @@ export default function App() {
                 A
               </div>
               <span className="font-display text-sm font-semibold tracking-wide text-slate-900 dark:text-slate-100 sm:text-base">
-              Aria
-            </span>
+                Aria
+              </span>
             </div>
 
             <nav className="ml-auto flex items-center gap-1 rounded-xl bg-slate-100 p-1 dark:bg-surface-muted">
@@ -136,7 +137,7 @@ export default function App() {
                     onDismissError={dismissError}
                 />
             ) : (
-                <VoiceCallPanel />
+                <VoiceCallPanel sessionId={activeSessionId} onMessage={appendMessage} />
             )}
           </main>
         </div>

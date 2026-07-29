@@ -17,6 +17,8 @@ interface UseChatSessionsResult {
   sendUserMessage: (text: string) => Promise<void>;
   retryLastMessage: () => Promise<void>;
   dismissError: () => void;
+  /** Appends a single message (e.g. from a voice call turn) to the given session and persists it. */
+  appendMessage: (sessionId: string, message: ChatMessage) => Promise<void>;
 }
 
 /**
@@ -33,6 +35,14 @@ export function useChatSessions(): UseChatSessionsResult {
   const [sendError, setSendError] = useState<string | null>(null);
   const lastFailedTextRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Mirrors `activeSession` synchronously so rapid back-to-back calls to appendMessage
+  // (e.g. a voice turn's user message immediately followed by the assistant's reply)
+  // don't race against React's render cycle and clobber each other.
+  const activeSessionRef = useRef<ChatSession | null>(null);
+
+  useEffect(() => {
+    activeSessionRef.current = activeSession;
+  }, [activeSession]);
 
   const refreshSessionList = useCallback(async () => {
     const list = await sessionApi.listSessions();
@@ -78,20 +88,20 @@ export function useChatSessions(): UseChatSessionsResult {
   }, []);
 
   const removeSession = useCallback(
-    async (id: string) => {
-      await sessionApi.deleteSession(id);
-      await refreshSessionList();
-      if (activeSession?.id === id) {
-        const remaining = await sessionApi.listSessions();
-        if (remaining.length > 0) {
-          const next = await sessionApi.getSession(remaining[0].id);
-          setActiveSession(next);
-        } else {
-          await createNewSession();
+      async (id: string) => {
+        await sessionApi.deleteSession(id);
+        await refreshSessionList();
+        if (activeSession?.id === id) {
+          const remaining = await sessionApi.listSessions();
+          if (remaining.length > 0) {
+            const next = await sessionApi.getSession(remaining[0].id);
+            setActiveSession(next);
+          } else {
+            await createNewSession();
+          }
         }
-      }
-    },
-    [activeSession, refreshSessionList, createNewSession],
+      },
+      [activeSession, refreshSessionList, createNewSession],
   );
 
   const persistMessages = useCallback(async (sessionId: string, messages: ChatMessage[]) => {
@@ -105,63 +115,63 @@ export function useChatSessions(): UseChatSessionsResult {
   }, []);
 
   const runSend = useCallback(
-    async (text: string) => {
-      if (!activeSession || !text.trim()) return;
-      setSendError(null);
-      lastFailedTextRef.current = null;
+      async (text: string) => {
+        if (!activeSession || !text.trim()) return;
+        setSendError(null);
+        lastFailedTextRef.current = null;
 
-      const userMessage: ChatMessage = {
-        id: uuid(),
-        role: 'user',
-        content: text.trim(),
-        createdAt: Date.now(),
-        status: 'sent',
-      };
-
-      const withUserMessage = [...activeSession.messages, userMessage];
-      setActiveSession({ ...activeSession, messages: withUserMessage });
-      setIsSending(true);
-
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      try {
-        const replyText = await sendMessage({
-          sessionId: activeSession.id,
-          history: withUserMessage,
-          text: userMessage.content,
-          signal: controller.signal,
-        });
-
-        const assistantMessage: ChatMessage = {
+        const userMessage: ChatMessage = {
           id: uuid(),
-          role: 'assistant',
-          content: replyText,
+          role: 'user',
+          content: text.trim(),
           createdAt: Date.now(),
           status: 'sent',
         };
 
-        const finalMessages = [...withUserMessage, assistantMessage];
-        setActiveSession((prev) => (prev ? { ...prev, messages: finalMessages } : prev));
-        await persistMessages(activeSession.id, finalMessages);
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        const message =
-          err instanceof ChatApiError ? err.message : 'Something went wrong sending your message.';
-        setSendError(message);
-        lastFailedTextRef.current = text;
-        // Keep the user's message in the thread but flag it as failed, and persist so it's not lost on refresh.
-        const messagesWithFailure = withUserMessage.map((m) =>
-          m.id === userMessage.id ? { ...m, status: 'error' as const } : m,
-        );
-        setActiveSession((prev) => (prev ? { ...prev, messages: messagesWithFailure } : prev));
-        await persistMessages(activeSession.id, messagesWithFailure);
-      } finally {
-        setIsSending(false);
-      }
-    },
-    [activeSession, persistMessages],
+        const withUserMessage = [...activeSession.messages, userMessage];
+        setActiveSession({ ...activeSession, messages: withUserMessage });
+        setIsSending(true);
+
+        abortRef.current?.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
+
+        try {
+          const replyText = await sendMessage({
+            sessionId: activeSession.id,
+            history: withUserMessage,
+            text: userMessage.content,
+            signal: controller.signal,
+          });
+
+          const assistantMessage: ChatMessage = {
+            id: uuid(),
+            role: 'assistant',
+            content: replyText,
+            createdAt: Date.now(),
+            status: 'sent',
+          };
+
+          const finalMessages = [...withUserMessage, assistantMessage];
+          setActiveSession((prev) => (prev ? { ...prev, messages: finalMessages } : prev));
+          await persistMessages(activeSession.id, finalMessages);
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          const message =
+              err instanceof ChatApiError ? err.message : 'Something went wrong sending your message.';
+          setSendError(message);
+          lastFailedTextRef.current = text;
+          // Keep the user's message in the thread but flag it as failed, and persist so it's not lost on refresh.
+          const messagesWithFailure = withUserMessage.map((m) =>
+              m.id === userMessage.id ? { ...m, status: 'error' as const } : m,
+          );
+          setActiveSession((prev) => (prev ? { ...prev, messages: messagesWithFailure } : prev));
+          await persistMessages(activeSession.id, messagesWithFailure);
+        } finally {
+          setIsSending(false);
+        }
+      },
+      [activeSession, persistMessages],
   );
 
   const sendUserMessage = useCallback((text: string) => runSend(text), [runSend]);
@@ -177,6 +187,19 @@ export function useChatSessions(): UseChatSessionsResult {
 
   const dismissError = useCallback(() => setSendError(null), []);
 
+  const appendMessage = useCallback(
+      async (sessionId: string, message: ChatMessage) => {
+        const current = activeSessionRef.current;
+        if (!current || current.id !== sessionId) return;
+        const updatedMessages = [...current.messages, message];
+        const updatedSession = { ...current, messages: updatedMessages };
+        setActiveSession(updatedSession);
+        activeSessionRef.current = updatedSession;
+        await persistMessages(sessionId, updatedMessages);
+      },
+      [persistMessages],
+  );
+
   return {
     sessions,
     activeSession,
@@ -190,5 +213,6 @@ export function useChatSessions(): UseChatSessionsResult {
     sendUserMessage,
     retryLastMessage,
     dismissError,
+    appendMessage,
   };
 }
