@@ -1,4 +1,4 @@
-<img src="./frontend/public/logo-lockup.svg" alt="FRIDAY — AI Chat & Voice Assistant" width="420" />
+<img src="./public/logo-lockup.svg" alt="FRIDAY — AI Chat & Voice Assistant" width="420" />
 
 # FRIDAY
 
