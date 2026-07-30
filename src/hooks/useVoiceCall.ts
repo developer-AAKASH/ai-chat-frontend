@@ -44,6 +44,12 @@ export function useVoiceCall(
   const controllerRef = useRef<VoiceRecognitionController | null>(null);
   const historyRef = useRef<ChatMessage[]>([]);
   const activeRef = useRef(false);
+  // Holds the "connecting…" timeout id so it can be cancelled if the call is torn
+  // down (end call, or the component unmounts) before it has a chance to fire.
+  const connectTimeoutRef = useRef<number | null>(null);
+  // Aborts any in-flight sendMessage (greeting or a turn) when the call ends, so a
+  // stray network response can't trigger a reply after the call is already over.
+  const abortControllerRef = useRef<AbortController | null>(null);
   // The session this call is writing to, pinned for the whole call so switching
   // chats mid-call (in another tab/panel) doesn't split one call across two sessions.
   const callSessionIdRef = useRef<string | null>(null);
@@ -113,6 +119,7 @@ export function useVoiceCall(
         history: historyRef.current,
         text: userText,
         mode: 'voice',
+        signal: abortControllerRef.current?.signal,
         onDelta: (_delta, fullTextSoFar) => {
           // Ignore stray updates from a turn the user has already interrupted/moved past.
           if (myTurn !== turnIdRef.current) return;
@@ -213,6 +220,7 @@ export function useVoiceCall(
       history: [kickoffMessage],
       text: VOICE_GREETING_PROMPT,
       mode: 'voice',
+      signal: abortControllerRef.current?.signal,
       onDelta: (_delta, fullTextSoFar) => {
         if (myTurn !== turnIdRef.current) return;
         setTranscript((prev) => prev.map((e) => (e.id === assistantTurnId ? { ...e, text: fullTextSoFar } : e)));
@@ -240,10 +248,12 @@ export function useVoiceCall(
     historyRef.current = [];
     turnIdRef.current = 0;
     activeRef.current = true;
+    abortControllerRef.current = new AbortController();
     setStatus('connecting');
 
     // Simulate a brief connection handshake before the mic goes live.
-    window.setTimeout(() => {
+    connectTimeoutRef.current = window.setTimeout(() => {
+      connectTimeoutRef.current = null;
       if (!activeRef.current) return;
       setStatus('connected');
 
@@ -283,13 +293,41 @@ export function useVoiceCall(
     }, CALL_CONNECT_DELAY_MS);
   }, [supported, handleAssistantTurn, playGreeting]);
 
-  const endCall = useCallback(() => {
+  /**
+   * Fully tears down whatever the call is doing right now: cancels the pending
+   * "connecting…" timeout (if it hasn't fired yet), aborts any in-flight request
+   * (greeting or a turn), stops the mic, and stops any audio that's playing.
+   * Shared by the explicit "End call" button and by the unmount cleanup below,
+   * so navigating away mid-call tears down exactly the same way hanging up does.
+   */
+  const stopCall = useCallback(() => {
     activeRef.current = false;
+    if (connectTimeoutRef.current !== null) {
+      window.clearTimeout(connectTimeoutRef.current);
+      connectTimeoutRef.current = null;
+    }
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
     controllerRef.current?.stop();
     controllerRef.current = null;
     cancelSpeech();
-    setStatus('disconnected');
   }, []);
+
+  const endCall = useCallback(() => {
+    stopCall();
+    setStatus('disconnected');
+  }, [stopCall]);
+
+  // Ends the call whenever this component unmounts — e.g. the user switches from
+  // the Voice tab back to Chat mid-call. Without this, the mic keeps listening and
+  // the greeting/reply request keeps running in the background, so coming back to
+  // the Voice tab later can show a call that's still connecting or land you in the
+  // middle of an orphaned turn instead of a fresh, idle call.
+  useEffect(() => {
+    return () => {
+      stopCall();
+    };
+  }, [stopCall]);
 
   /** Lets the user cut in while the assistant is thinking or talking — normal conversations allow this. */
   const interrupt = useCallback(() => {
