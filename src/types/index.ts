@@ -42,6 +42,7 @@ export type CallStatus =
     | 'listening'
     | 'thinking'
     | 'speaking'
+    | 'muted'
     | 'disconnected'
     | 'error';
 

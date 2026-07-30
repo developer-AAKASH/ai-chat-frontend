@@ -19,6 +19,12 @@ interface UseVoiceCallResult {
   endCall: () => void;
   /** Cuts off the assistant mid-reply and starts listening again immediately — real conversations allow this. */
   interrupt: () => void;
+  /** True while the user has muted their own mic. Does not affect the assistant's voice output. */
+  isMuted: boolean;
+  /** Mutes/unmutes the user's mic. Muting never interrupts the assistant; it only stops the mic
+   *  from listening the next time it's the user's turn to speak (or immediately, if it's their
+   *  turn already). */
+  toggleMute: () => void;
 }
 
 /**
@@ -41,6 +47,11 @@ export function useVoiceCall(
   const [status, setStatus] = useState<CallStatus>('idle');
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
+  // Mirrors `status` and `isMuted` for use inside callbacks (e.g. speech-synthesis
+  // completion callbacks) that were created before the latest render.
+  const statusRef = useRef<CallStatus>('idle');
+  const isMutedRef = useRef(false);
   const controllerRef = useRef<VoiceRecognitionController | null>(null);
   const historyRef = useRef<ChatMessage[]>([]);
   const activeRef = useRef(false);
@@ -66,8 +77,27 @@ export function useVoiceCall(
   useEffect(() => {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   const supported = isVoiceSupported();
+
+  /**
+   * Puts the mic back into "it's the user's turn" state after the assistant finishes
+   * thinking/speaking (or errors out) — the single place that decides whether that
+   * actually turns the mic on. If the user has muted themselves in the meantime, the
+   * mic stays off and the status reflects 'muted' instead of 'listening', so mute
+   * survives across turns instead of only applying to the turn it was pressed on.
+   */
+  const beginListening = useCallback(() => {
+    if (isMutedRef.current) {
+      setStatus('muted');
+      return;
+    }
+    controllerRef.current?.resume();
+    setStatus('listening');
+  }, []);
 
   const handleAssistantTurn = useCallback(async (userText: string) => {
     const myTurn = ++turnIdRef.current;
@@ -151,8 +181,7 @@ export function useVoiceCall(
           replyText,
           () => {
             if (activeRef.current && myTurn === turnIdRef.current) {
-              controllerRef.current?.resume();
-              setStatus('listening');
+              beginListening();
             }
           },
           (msg) => setErrorMessage(msg),
@@ -164,10 +193,9 @@ export function useVoiceCall(
       const message =
           err instanceof ChatApiError ? err.message : 'The assistant had trouble responding. Please try again.';
       setErrorMessage(message);
-      controllerRef.current?.resume();
-      setStatus('listening');
+      beginListening();
     }
-  }, []);
+  }, [beginListening]);
 
   /**
    * Makes FRIDAY speak first the moment a call connects, instead of sitting silently
@@ -205,8 +233,7 @@ export function useVoiceCall(
           finalText,
           () => {
             if (activeRef.current && myTurn === turnIdRef.current) {
-              controllerRef.current?.resume();
-              setStatus('listening');
+              beginListening();
             }
           },
           (msg) => setErrorMessage(msg),
@@ -231,7 +258,7 @@ export function useVoiceCall(
           // Never let a failed greeting block the call — fall back to a short local line.
           finishTurn(VOICE_GREETING_FALLBACK);
         });
-  }, []);
+  }, [beginListening]);
 
   const startCall = useCallback(() => {
     if (!supported) {
@@ -248,6 +275,8 @@ export function useVoiceCall(
     historyRef.current = [];
     turnIdRef.current = 0;
     activeRef.current = true;
+    isMutedRef.current = false;
+    setIsMuted(false);
     abortControllerRef.current = new AbortController();
     setStatus('connecting');
 
@@ -335,9 +364,37 @@ export function useVoiceCall(
     // Invalidate any in-flight reply so it doesn't suddenly start speaking after the user has moved on.
     turnIdRef.current += 1;
     cancelSpeech();
-    controllerRef.current?.resume();
-    setStatus('listening');
-  }, [status]);
+    // Interrupting stops the assistant, but if the user's mic is muted it shouldn't
+    // switch itself back on — same rule beginListening() applies after a normal turn.
+    beginListening();
+  }, [status, beginListening]);
+
+  /**
+   * Mutes/unmutes the user's mic. This only ever affects mic input, never the
+   * assistant's voice — muting mid-reply lets the assistant finish speaking, it just
+   * won't be listened to afterward until unmuted.
+   */
+  const toggleMute = useCallback(() => {
+    const next = !isMutedRef.current;
+    isMutedRef.current = next;
+    setIsMuted(next);
+
+    if (next) {
+      // Muting mid-turn: only actually silence the mic if it's currently live
+      // (i.e. it's the user's turn). If the assistant is thinking/speaking, the mic
+      // is already paused for feedback-loop reasons — beginListening() will pick up
+      // the mute flag once that turn ends, so there's nothing to do here.
+      if (statusRef.current === 'listening') {
+        controllerRef.current?.pause();
+        setStatus('muted');
+      }
+    } else if (statusRef.current === 'muted') {
+      // Unmuting while it was the user's turn: turn the mic back on immediately
+      // instead of waiting for the next turn.
+      controllerRef.current?.resume();
+      setStatus('listening');
+    }
+  }, []);
 
   return {
     status,
@@ -347,5 +404,7 @@ export function useVoiceCall(
     startCall,
     endCall,
     interrupt,
+    isMuted,
+    toggleMute,
   };
 }

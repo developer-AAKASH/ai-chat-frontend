@@ -7,6 +7,7 @@ const STATUS_CONFIG: Record<CallStatus, { label: string; dot: string; text: stri
     listening: { label: 'Listening…', dot: 'bg-brand-500 dark:bg-brand-400', text: 'text-brand-800 dark:text-brand-300' },
     thinking: { label: 'Thinking…', dot: 'bg-sky-500 dark:bg-sky-400', text: 'text-sky-600 dark:text-sky-300' },
     speaking: { label: 'Speaking…', dot: 'bg-violet-500 dark:bg-violet-400', text: 'text-violet-600 dark:text-violet-300' },
+    muted: { label: 'Muted', dot: 'bg-slate-400 dark:bg-slate-500', text: 'text-slate-500 dark:text-slate-400' },
     disconnected: { label: 'Call ended', dot: 'bg-slate-400 dark:bg-slate-500', text: 'text-slate-500 dark:text-slate-400' },
     error: { label: 'Call error', dot: 'bg-red-500', text: 'text-red-600 dark:text-red-300' },
 };

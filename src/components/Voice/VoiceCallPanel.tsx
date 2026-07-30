@@ -6,7 +6,7 @@ import { ErrorBanner } from '../common/ErrorBanner';
 import type { ChatMessage } from '../../types';
 import { TYPING_DOT_DELAY_STEP_S } from '../../constants/ui';
 
-const CALL_ACTIVE_STATUSES = new Set(['connecting', 'connected', 'listening', 'thinking', 'speaking']);
+const CALL_ACTIVE_STATUSES = new Set(['connecting', 'connected', 'listening', 'thinking', 'speaking', 'muted']);
 
 interface VoiceCallPanelProps {
     sessionId: string | null;
@@ -14,10 +14,8 @@ interface VoiceCallPanelProps {
 }
 
 export function VoiceCallPanel({ sessionId, onMessage }: VoiceCallPanelProps) {
-    const { status, transcript, errorMessage, isSupported, startCall, endCall, interrupt } = useVoiceCall(
-        sessionId,
-        onMessage,
-    );
+    const { status, transcript, errorMessage, isSupported, startCall, endCall, interrupt, isMuted, toggleMute } =
+        useVoiceCall(sessionId, onMessage);
     const isCallActive = CALL_ACTIVE_STATUSES.has(status);
     const isInterruptible = status === 'thinking' || status === 'speaking';
 
@@ -42,7 +40,9 @@ export function VoiceCallPanel({ sessionId, onMessage }: VoiceCallPanelProps) {
                                     ? 'bg-sky-500'
                                     : status === 'listening'
                                         ? 'bg-brand-700'
-                                        : 'bg-slate-100 text-slate-500 dark:bg-surface-muted dark:text-slate-400'
+                                        : status === 'muted'
+                                            ? 'bg-slate-400 dark:bg-slate-600'
+                                            : 'bg-slate-100 text-slate-500 dark:bg-surface-muted dark:text-slate-400'
                         }`}
                     >
                         {status === 'thinking' ? (
@@ -78,6 +78,8 @@ export function VoiceCallPanel({ sessionId, onMessage }: VoiceCallPanelProps) {
 
                 {isInterruptible ? (
                     <p className="text-xs text-slate-400 dark:text-slate-500">Tap to jump in</p>
+                ) : status === 'muted' ? (
+                    <p className="text-xs text-slate-400 dark:text-slate-500">Mic is muted — tap Unmute to speak</p>
                 ) : (
                     sessionId && <p className="text-xs text-slate-400 dark:text-slate-500">Saved to your chat history as you talk</p>
                 )}
@@ -87,9 +89,55 @@ export function VoiceCallPanel({ sessionId, onMessage }: VoiceCallPanelProps) {
                         Start call
                     </Button>
                 ) : (
-                    <Button size="lg" variant="danger" onClick={endCall}>
-                        End call
-                    </Button>
+                    <div className="flex items-center gap-3">
+                        <Button
+                            size="lg"
+                            variant={isMuted ? 'primary' : 'secondary'}
+                            onClick={toggleMute}
+                            aria-pressed={isMuted}
+                            aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+                            icon={
+                                isMuted ? (
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                                        <path
+                                            d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-5.94-.6M9 9v3a3 3 0 0 0 4.24 2.74"
+                                            stroke="currentColor"
+                                            strokeWidth="1.8"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                        />
+                                        <path
+                                            d="M19 11a7 7 0 0 1-1.02 3.64M5 11a7 7 0 0 0 10.54 6.03M12 18v3M3 3l18 18"
+                                            stroke="currentColor"
+                                            strokeWidth="1.8"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                        />
+                                    </svg>
+                                ) : (
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                                        <path
+                                            d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"
+                                            stroke="currentColor"
+                                            strokeWidth="1.8"
+                                            strokeLinecap="round"
+                                        />
+                                        <path
+                                            d="M19 11a7 7 0 0 1-14 0M12 18v3"
+                                            stroke="currentColor"
+                                            strokeWidth="1.8"
+                                            strokeLinecap="round"
+                                        />
+                                    </svg>
+                                )
+                            }
+                        >
+                            {isMuted ? 'Unmute' : 'Mute'}
+                        </Button>
+                        <Button size="lg" variant="danger" onClick={endCall}>
+                            End call
+                        </Button>
+                    </div>
                 )}
 
                 {!isSupported && (
