@@ -1,0 +1,41 @@
+<svg width="560" height="140" viewBox="0 0 560 140" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="FRIDAY — AI Assistant">
+  <defs>
+    <linearGradient id="friday-lockup-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#70f547" />
+      <stop offset="100%" stop-color="#1f8500" />
+    </linearGradient>
+  </defs>
+
+  <!-- Icon mark -->
+  <rect x="6" y="6" width="128" height="128" rx="30" fill="url(#friday-lockup-bg)" />
+  <circle cx="70" cy="70" r="53" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2" />
+  <text
+    x="70"
+    y="93"
+    text-anchor="middle"
+    font-family="'Space Grotesk', 'Inter', system-ui, sans-serif"
+    font-weight="700"
+    font-size="68"
+    fill="#ffffff"
+  >F</text>
+
+  <!-- Wordmark -->
+  <text
+    x="162"
+    y="82"
+    font-family="'Space Grotesk', 'Inter', system-ui, sans-serif"
+    font-weight="700"
+    font-size="56"
+    letter-spacing="1"
+    fill="#0f1117"
+  >FRIDAY</text>
+  <text
+    x="164"
+    y="106"
+    font-family="'Inter', system-ui, sans-serif"
+    font-weight="500"
+    font-size="16"
+    letter-spacing="2"
+    fill="#186600"
+  >AI CHAT &amp; VOICE ASSISTANT</text>
+</svg>

@@ -64,35 +64,45 @@ export default function App() {
           />
         </aside>
 
-        {/* Mobile sidebar overlay */}
-        {isSidebarOpen && (
-            <div className="fixed inset-0 z-40 md:hidden">
-              <button
-                  aria-label="Close sidebar overlay"
-                  className="absolute inset-0 bg-black/50"
-                  onClick={() => setIsSidebarOpen(false)}
-              />
-              <div className="absolute inset-y-0 left-0 w-72 max-w-[85%] shadow-xl">
-                <Sidebar
-                    sessions={sessions}
-                    activeSessionId={activeSessionId}
-                    isLoading={isLoadingSessions}
-                    onSelect={(id) => {
-                      selectSession(id);
-                      setTab('chat');
-                      setIsSidebarOpen(false);
-                    }}
-                    onCreate={() => {
-                      createNewSession();
-                      setTab('chat');
-                      setIsSidebarOpen(false);
-                    }}
-                    onDelete={removeSession}
-                    onClose={() => setIsSidebarOpen(false)}
-                />
-              </div>
-            </div>
-        )}
+        {/* Mobile sidebar overlay — stays mounted so both the open AND close
+            transitions can play; visibility/interactivity is toggled via
+            classes instead of adding/removing it from the DOM. */}
+        <div
+            className={`fixed inset-0 z-40 md:hidden transition-opacity duration-300 ease-out ${
+                isSidebarOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+            }`}
+            aria-hidden={!isSidebarOpen}
+        >
+          <button
+              aria-label="Close sidebar overlay"
+              tabIndex={isSidebarOpen ? 0 : -1}
+              className="absolute inset-0 bg-black/50"
+              onClick={() => setIsSidebarOpen(false)}
+          />
+          <div
+              className={`absolute inset-y-0 left-0 w-72 max-w-[85%] shadow-xl transition-transform duration-300 ease-out ${
+                  isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+              }`}
+          >
+            <Sidebar
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                isLoading={isLoadingSessions}
+                onSelect={(id) => {
+                  selectSession(id);
+                  setTab('chat');
+                  setIsSidebarOpen(false);
+                }}
+                onCreate={() => {
+                  createNewSession();
+                  setTab('chat');
+                  setIsSidebarOpen(false);
+                }}
+                onDelete={removeSession}
+                onClose={() => setIsSidebarOpen(false)}
+            />
+          </div>
+        </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex items-center gap-3 border-b border-slate-200 px-3 py-2.5 dark:border-white/5 sm:px-4">

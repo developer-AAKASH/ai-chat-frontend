@@ -1,0 +1,24 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="FRIDAY logo mark">
+  <defs>
+    <linearGradient id="friday-mark-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#70f547" />
+      <stop offset="100%" stop-color="#1f8500" />
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded badge, same corner language as the in-app header avatar -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#friday-mark-bg)" />
+
+  <!-- Faint outward pulse ring, echoing the "listening/speaking" animation in the voice call UI -->
+  <circle cx="64" cy="64" r="50" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2" />
+
+  <text
+    x="64"
+    y="86"
+    text-anchor="middle"
+    font-family="'Space Grotesk', 'Inter', system-ui, sans-serif"
+    font-weight="700"
+    font-size="64"
+    fill="#ffffff"
+  >F</text>
+</svg>
