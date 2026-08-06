@@ -18,23 +18,3 @@ export const VOICE_GREETING_PROMPT = `The user just started this call with you. 
 
 /** Shown/spoken if the greeting request fails, so a call never opens in dead silence. */
 export const VOICE_GREETING_FALLBACK = `Hi, I'm ${ASSISTANT_NAME}. How can I help?`;
-
-// Slightly faster than 1x and a hair higher pitch reads as noticeably more energetic/human
-// than the flat robotic default — small values, big difference.
-export const SPEECH_RATE = 1.05;
-export const SPEECH_PITCH = 1.02;
-
-/**
- * Browsers ship a mix of low-quality robotic voices and much better neural/"natural"
- * ones, but expose no quality metadata — only names. We rank by name patterns known
- * to be higher quality (Chrome's "Google" voices, Edge's "Natural" voices, macOS's
- * better system voices) and fall back to whatever's available.
- */
-export const PREFERRED_VOICE_PATTERNS = [
-    /Google US English/i,
-    /Microsoft.*Online.*Natural/i,
-    /Natural/i,
-    /Samantha/i,
-    /Aria/i,
-    /Jenny/i,
-];

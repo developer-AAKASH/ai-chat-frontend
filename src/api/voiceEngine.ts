@@ -1,20 +1,26 @@
 /**
- * Thin wrapper around the browser's native Web Speech API.
+ * Voice I/O for calls.
  *
- * - Speech-to-text: SpeechRecognition (real mic input, real transcription)
- * - Text-to-speech: SpeechSynthesis (real audio output)
+ * - Speech-to-text: still the browser's native SpeechRecognition (real mic input,
+ *   real transcription) — no backend involved for this half.
+ * - Text-to-speech: ElevenLabs, via our own backend (POST /api/tts in
+ *   backend/index.js), which holds the ElevenLabs API key and proxies the
+ *   request — same reasoning as the chat backend: never expose an API key
+ *   to the browser.
  *
- * The AI reply text comes from the real chat backend (see chatApi.ts / the
- * Gemini-backed server), same as text chat. Only the audio I/O — listening
- * via the mic and speaking the reply aloud — is handled by the browser's own
- * Web Speech API, since there's no separate voice-native LLM endpoint here.
+ * The AI reply text still comes from the real chat backend (see chatApi.ts);
+ * only how that reply gets spoken changed from the browser's robotic
+ * SpeechSynthesis voices to ElevenLabs' natural-sounding audio.
  */
 
-import { PREFERRED_VOICE_PATTERNS, RECOGNITION_LANG, SPEECH_PITCH, SPEECH_RATE } from '../constants/voice';
+import { RECOGNITION_LANG } from '../constants/voice';
+import { API_URL } from '../constants/common';
 
 export function isVoiceSupported(): boolean {
   const SpeechRecognitionCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-  return Boolean(SpeechRecognitionCtor) && 'speechSynthesis' in window;
+  // Audio playback (for the ElevenLabs response) is supported everywhere modern
+  // browsers run — the only real constraint left is whether the browser can listen.
+  return Boolean(SpeechRecognitionCtor);
 }
 
 export interface RecognitionHandlers {
@@ -121,64 +127,93 @@ export class VoiceRecognitionController {
   }
 }
 
-let cachedVoice: SpeechSynthesisVoice | null = null;
-let voiceCacheIsFresh = false;
+// ---- Text-to-speech (ElevenLabs, via our backend) ----
 
-function pickPreferredVoice(): SpeechSynthesisVoice | null {
-  const voices = window.speechSynthesis.getVoices();
-  if (voices.length === 0) return null;
-
-  for (const pattern of PREFERRED_VOICE_PATTERNS) {
-    const match = voices.find((v) => pattern.test(v.name) && v.lang.toLowerCase().startsWith('en'));
-    if (match) return match;
-  }
-  return voices.find((v) => v.lang.toLowerCase().startsWith('en')) ?? voices[0];
+interface ActivePlayback {
+  audio: HTMLAudioElement;
+  objectUrl: string;
 }
 
-if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-  // Voice lists load asynchronously in some browsers (notably Chrome on first page load).
-  // Invalidate the cache when the real list arrives so we don't get stuck with a null pick.
-  window.speechSynthesis.onvoiceschanged = () => {
-    voiceCacheIsFresh = false;
-  };
+/** The audio currently playing (if any), so cancelSpeech() can stop it. */
+let activePlayback: ActivePlayback | null = null;
+/** Aborts an in-flight /api/tts fetch, so interrupting mid-request doesn't still
+ *  start playing a reply after the user has already moved on. */
+let activeAbortController: AbortController | null = null;
+
+function stopActivePlayback(): void {
+  if (!activePlayback) return;
+  const { audio, objectUrl } = activePlayback;
+  activePlayback = null;
+  // Detach handlers first — otherwise calling pause() here can itself fire
+  // onerror/onended and re-run the finish logic a second time.
+  audio.onended = null;
+  audio.onerror = null;
+  audio.pause();
+  URL.revokeObjectURL(objectUrl);
 }
 
-function getPreferredVoice(): SpeechSynthesisVoice | null {
-  if (voiceCacheIsFresh) return cachedVoice;
-  const picked = pickPreferredVoice();
-  if (picked) {
-    cachedVoice = picked;
-    voiceCacheIsFresh = true;
-  }
-  return picked;
-}
-
+/**
+ * Fetches ElevenLabs-generated speech audio for `text` from our backend and plays it.
+ * Fire-and-forget, same shape as the old SpeechSynthesis version: `onDone` always fires
+ * once (finished, cancelled, or failed); `onError` only fires on a genuine failure.
+ */
 export function speak(text: string, onDone: () => void, onError?: (msg: string) => void): void {
-  if (!('speechSynthesis' in window)) {
-    onError?.('Speech synthesis is not supported in this browser.');
-    onDone();
-    return;
-  }
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  const voice = getPreferredVoice();
-  if (voice) utterance.voice = voice;
-  utterance.rate = SPEECH_RATE;
-  utterance.pitch = SPEECH_PITCH;
-  utterance.onend = () => onDone();
-  utterance.onerror = (event) => {
-    // Cancelling mid-speech (e.g. the user interrupting) fires an 'interrupted' error —
-    // that's expected behavior, not a real failure, so don't surface it as one.
-    if (event.error !== 'interrupted' && event.error !== 'canceled') {
-      onError?.('Failed to play voice response.');
+  // Cancel anything already speaking/loading before starting this line — mirrors
+  // `window.speechSynthesis.cancel()` in the old implementation.
+  cancelSpeech();
+
+  const controller = new AbortController();
+  activeAbortController = controller;
+
+  (async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || 'Failed to generate voice response.');
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const audio = new Audio(objectUrl);
+      activePlayback = { audio, objectUrl };
+
+      audio.onended = () => {
+        if (activePlayback?.audio === audio) activePlayback = null;
+        URL.revokeObjectURL(objectUrl);
+        onDone();
+      };
+      audio.onerror = () => {
+        if (activePlayback?.audio === audio) activePlayback = null;
+        URL.revokeObjectURL(objectUrl);
+        onError?.('Failed to play voice response.');
+        onDone();
+      };
+
+      await audio.play();
+    } catch (err) {
+      // Cancelled on purpose (interrupt, a new line starting, or the call ending) —
+      // both the fetch abort and a play() interrupted by pause() surface as this.
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        onDone();
+        return;
+      }
+      onError?.(err instanceof Error ? err.message : 'Failed to generate voice response.');
+      onDone();
+    } finally {
+      if (activeAbortController === controller) activeAbortController = null;
     }
-    onDone();
-  };
-  window.speechSynthesis.speak(utterance);
+  })();
 }
 
 export function cancelSpeech(): void {
-  if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
-  }
+  activeAbortController?.abort();
+  activeAbortController = null;
+  stopActivePlayback();
 }
