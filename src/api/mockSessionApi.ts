@@ -78,6 +78,22 @@ export async function createSession(): Promise<ChatSession> {
   return session;
 }
 
+/**
+ * Writes a session to the store for the first time.
+ *
+ * Used to promote an in-memory-only "draft" session (created by `createNewSession`
+ * in the hook, but deliberately never sent to the backend) into a real, persisted
+ * one — which only happens once the user actually sends a message. Until then the
+ * draft exists purely in React state, so an abandoned "New chat" never shows up
+ * in the sidebar or survives a refresh.
+ */
+export async function persistDraftSession(session: ChatSession): Promise<ChatSession> {
+  await delay(60);
+  store.set(session.id, session);
+  saveStore(store);
+  return session;
+}
+
 export async function updateSessionMessages(
     id: string,
     messages: ChatMessage[],

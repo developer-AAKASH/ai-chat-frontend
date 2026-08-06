@@ -23,6 +23,12 @@ interface UseChatSessionsResult {
     appendMessage: (sessionId: string, message: ChatMessage) => Promise<void>;
 }
 
+/** Builds a brand-new, not-yet-saved session object. Nothing is written to the store here. */
+function buildDraftSession(): ChatSession {
+    const now = Date.now();
+    return { id: uuid(), title: 'New chat', createdAt: now, updatedAt: now, messages: [] };
+}
+
 /**
  * Owns everything related to chat sessions: the sidebar list, the currently
  * active conversation, and sending messages within it. Kept as a single hook
@@ -41,6 +47,13 @@ export function useChatSessions(): UseChatSessionsResult {
     // (e.g. a voice turn's user message immediately followed by the assistant's reply)
     // don't race against React's render cycle and clobber each other.
     const activeSessionRef = useRef<ChatSession | null>(null);
+    // Holds the id of a "New chat" that only exists in memory so far — created locally
+    // when the user clicks "New chat", but never written to the store until they actually
+    // send a message (text or voice). Null once that session is persisted, or if the
+    // active session was never a draft to begin with (e.g. it was loaded from the list).
+    // Kept as a ref rather than state since it needs to be read synchronously inside
+    // callbacks (persistMessages) without waiting for a render.
+    const draftSessionIdRef = useRef<string | null>(null);
 
     useEffect(() => {
         activeSessionRef.current = activeSession;
@@ -51,8 +64,26 @@ export function useChatSessions(): UseChatSessionsResult {
         setSessions(list);
     }, []);
 
-    const persistMessages = useCallback(async (sessionId: string, messages: ChatMessage[]) => {
-        const updated = await sessionApi.updateSessionMessages(sessionId, messages);
+    /**
+     * Saves `messages` for `session`. If `session` is still an unsaved draft (see
+     * `draftSessionIdRef` above), this is the moment it gets written to the store for
+     * the first time — i.e. persistence is triggered by the user's first real
+     * interaction (a sent message), not by clicking "New chat".
+     */
+    const persistMessages = useCallback(async (session: ChatSession, messages: ChatMessage[]) => {
+        let updated: ChatSession | null;
+        if (draftSessionIdRef.current === session.id) {
+            const firstUserMessage = messages.find((m) => m.role === 'user');
+            updated = await sessionApi.persistDraftSession({
+                ...session,
+                messages,
+                updatedAt: Date.now(),
+                title: firstUserMessage ? firstUserMessage.content.slice(0, 40) : session.title,
+            });
+            draftSessionIdRef.current = null;
+        } else {
+            updated = await sessionApi.updateSessionMessages(session.id, messages);
+        }
         if (updated) {
             setActiveSession(updated);
         }
@@ -110,31 +141,33 @@ export function useChatSessions(): UseChatSessionsResult {
                     { id: assistantId, role: 'assistant', content: replyText, createdAt: assistantCreatedAt, status: 'sent' },
                 ];
                 setActiveSession((prev) => (prev && prev.id === session.id ? { ...prev, messages: finalMessages } : prev));
-                await persistMessages(session.id, finalMessages);
+                // Deliberately not persisted here — the greeting is the assistant talking to
+                // an empty room. The session is only saved once the user says something back.
             } catch {
                 const fallbackMessages: ChatMessage[] = [
                     { id: assistantId, role: 'assistant', content: TEXT_GREETING_FALLBACK, createdAt: assistantCreatedAt, status: 'sent' },
                 ];
                 setActiveSession((prev) => (prev && prev.id === session.id ? { ...prev, messages: fallbackMessages } : prev));
-                await persistMessages(session.id, fallbackMessages);
             } finally {
                 setIsSending(false);
             }
         },
-        [persistMessages],
+        [],
     );
 
     const createNewSession = useCallback(async () => {
-        const session = await sessionApi.createSession();
-        await refreshSessionList();
-        setActiveSession(session);
-        setSessionIdInUrl(session.id);
+        const draft = buildDraftSession();
+        draftSessionIdRef.current = draft.id;
+        setActiveSession(draft);
+        setSessionIdInUrl(draft.id);
         setSendError(null);
-        void sendGreeting(session);
-    }, [refreshSessionList, sendGreeting]);
+        void sendGreeting(draft);
+    }, [sendGreeting]);
 
     // Bootstrap: restore the session named in the URL (if any and it still exists), otherwise
     // fall back to the most recent session, creating (and greeting from) a first one if none exist.
+    // A freshly-created first session is a draft too, same as clicking "New chat" — it isn't
+    // written to the store until the user actually says something.
     useEffect(() => {
         let cancelled = false;
         (async () => {
@@ -151,12 +184,12 @@ export function useChatSessions(): UseChatSessionsResult {
                 setActiveSession(fromUrl);
                 setSessionIdInUrl(fromUrl.id, { replace: true });
             } else if (list.length === 0) {
-                const session = await sessionApi.createSession();
-                if (cancelled) return;
-                setSessions(await sessionApi.listSessions());
-                setActiveSession(session);
-                setSessionIdInUrl(session.id, { replace: true });
-                void sendGreeting(session);
+                const draft = buildDraftSession();
+                draftSessionIdRef.current = draft.id;
+                setSessions([]);
+                setActiveSession(draft);
+                setSessionIdInUrl(draft.id, { replace: true });
+                void sendGreeting(draft);
             } else {
                 // Either there was no `session` param, or it pointed at a session that no
                 // longer exists (deleted, cleared storage, stale bookmark) — fall back to
@@ -184,6 +217,7 @@ export function useChatSessions(): UseChatSessionsResult {
             if (!id) return;
             const session = await sessionApi.getSession(id);
             if (session) {
+                draftSessionIdRef.current = null;
                 setSendError(null);
                 setActiveSession(session);
             }
@@ -195,8 +229,14 @@ export function useChatSessions(): UseChatSessionsResult {
     const selectSession = useCallback(async (id: string) => {
         setSendError(null);
         const session = await sessionApi.getSession(id);
-        setActiveSession(session);
-        if (session) setSessionIdInUrl(session.id);
+        if (session) {
+            // Navigating to a real, saved session — any in-progress "New chat" the user
+            // didn't type anything into is abandoned here. Since it was never written to
+            // the store, there's nothing to clean up; it simply ceases to exist.
+            draftSessionIdRef.current = null;
+            setActiveSession(session);
+            setSessionIdInUrl(session.id);
+        }
     }, []);
 
     const removeSession = useCallback(
@@ -271,7 +311,7 @@ export function useChatSessions(): UseChatSessionsResult {
                     { id: assistantId, role: 'assistant', content: replyText, createdAt: assistantCreatedAt, status: 'sent' },
                 ];
                 setActiveSession((prev) => (prev ? { ...prev, messages: finalMessages } : prev));
-                await persistMessages(activeSession.id, finalMessages);
+                await persistMessages(activeSession, finalMessages);
             } catch (err) {
                 if (err instanceof DOMException && err.name === 'AbortError') return;
                 const message =
@@ -284,7 +324,7 @@ export function useChatSessions(): UseChatSessionsResult {
                     m.id === userMessage.id ? { ...m, status: 'error' as const } : m,
                 );
                 setActiveSession((prev) => (prev ? { ...prev, messages: messagesWithFailure } : prev));
-                await persistMessages(activeSession.id, messagesWithFailure);
+                await persistMessages(activeSession, messagesWithFailure);
             } finally {
                 setIsSending(false);
             }
@@ -313,7 +353,7 @@ export function useChatSessions(): UseChatSessionsResult {
             const updatedSession = { ...current, messages: updatedMessages };
             setActiveSession(updatedSession);
             activeSessionRef.current = updatedSession;
-            await persistMessages(sessionId, updatedMessages);
+            await persistMessages(current, updatedMessages);
         },
         [persistMessages],
     );
