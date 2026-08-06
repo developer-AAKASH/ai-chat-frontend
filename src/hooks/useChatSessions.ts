@@ -4,6 +4,7 @@ import * as sessionApi from '../api/mockSessionApi';
 import { ChatApiError, sendMessage } from '../api/chatApi';
 import type { ChatMessage, ChatSession, ChatSessionSummary } from '../types';
 import { TEXT_GREETING_FALLBACK, TEXT_GREETING_PROMPT } from '../constants/chat';
+import { getSessionIdFromUrl, setSessionIdInUrl } from '../utils/url';
 
 interface UseChatSessionsResult {
     sessions: ChatSessionSummary[];
@@ -127,27 +128,45 @@ export function useChatSessions(): UseChatSessionsResult {
         const session = await sessionApi.createSession();
         await refreshSessionList();
         setActiveSession(session);
+        setSessionIdInUrl(session.id);
         setSendError(null);
         void sendGreeting(session);
     }, [refreshSessionList, sendGreeting]);
 
-    // Bootstrap: load session list, creating (and greeting from) a first session if none exist.
+    // Bootstrap: restore the session named in the URL (if any and it still exists), otherwise
+    // fall back to the most recent session, creating (and greeting from) a first one if none exist.
     useEffect(() => {
         let cancelled = false;
         (async () => {
             setIsLoadingSessions(true);
             const list = await sessionApi.listSessions();
             if (cancelled) return;
-            if (list.length === 0) {
+
+            const urlSessionId = getSessionIdFromUrl();
+            const fromUrl = urlSessionId ? await sessionApi.getSession(urlSessionId) : null;
+            if (cancelled) return;
+
+            if (fromUrl) {
+                setSessions(list);
+                setActiveSession(fromUrl);
+                setSessionIdInUrl(fromUrl.id, { replace: true });
+            } else if (list.length === 0) {
                 const session = await sessionApi.createSession();
                 if (cancelled) return;
                 setSessions(await sessionApi.listSessions());
                 setActiveSession(session);
+                setSessionIdInUrl(session.id, { replace: true });
                 void sendGreeting(session);
             } else {
+                // Either there was no `session` param, or it pointed at a session that no
+                // longer exists (deleted, cleared storage, stale bookmark) — fall back to
+                // the most recent one and correct the URL to match.
                 setSessions(list);
                 const first = await sessionApi.getSession(list[0].id);
-                if (!cancelled) setActiveSession(first);
+                if (!cancelled) {
+                    setActiveSession(first);
+                    if (first) setSessionIdInUrl(first.id, { replace: true });
+                }
             }
             if (!cancelled) setIsLoadingSessions(false);
         })();
@@ -157,10 +176,27 @@ export function useChatSessions(): UseChatSessionsResult {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Keep the active session in sync with browser back/forward navigation between
+    // `?session=` URLs (e.g. after visiting a couple of different chats).
+    useEffect(() => {
+        const handlePopState = async () => {
+            const id = getSessionIdFromUrl();
+            if (!id) return;
+            const session = await sessionApi.getSession(id);
+            if (session) {
+                setSendError(null);
+                setActiveSession(session);
+            }
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, []);
+
     const selectSession = useCallback(async (id: string) => {
         setSendError(null);
         const session = await sessionApi.getSession(id);
         setActiveSession(session);
+        if (session) setSessionIdInUrl(session.id);
     }, []);
 
     const removeSession = useCallback(
@@ -172,6 +208,7 @@ export function useChatSessions(): UseChatSessionsResult {
                 if (remaining.length > 0) {
                     const next = await sessionApi.getSession(remaining[0].id);
                     setActiveSession(next);
+                    if (next) setSessionIdInUrl(next.id, { replace: true });
                 } else {
                     await createNewSession();
                 }
